@@ -18,6 +18,7 @@
 #include "Common.h"
 #include "ObjectMgr.h"
 #include "BattlePayMgr.h"
+#include "CharacterService.h"
 #include "PetBattle.h"
 #include "WorldSession.h"
 #include "Player.h"
@@ -96,8 +97,6 @@ void BattlepayManager::SavePurchase(Purchase * purchase)
 void BattlepayManager::ProcessDelivery(Purchase * purchase)
 {
     auto player = _session->GetPlayer();
-    if (!player)
-        return;
 
     auto const& product = sBattlePayDataStore->GetProduct(purchase->ProductID);
     auto const& productDisplay = sBattlePayDataStore->GetDisplayInfo(product.ProductID);
@@ -123,6 +122,35 @@ void BattlepayManager::ProcessDelivery(Purchase * purchase)
             player->SetLevel(product.CustomValue);
             player->SendBattlePayMessage(1, productDisplay->Name1);
         }
+        break;
+    }
+    case Battlepay::CharacterBoost:
+    {
+        if (!sWorld->getBoolConfig(CONFIG_CHARACTER_BOOST_ENABLED))
+            break;
+
+        uint8 targetLevel = 0;
+        if (product.ScriptName.find("level90") != std::string::npos)
+            targetLevel = 90;
+        else if (product.ScriptName.find("level100") != std::string::npos)
+            targetLevel = 100;
+        else if (product.ScriptName.find("level110") != std::string::npos)
+            targetLevel = 110;
+        else if (product.CustomValue > 0 && product.CustomValue <= 255)
+            targetLevel = uint8(product.CustomValue);
+
+        if (!targetLevel)
+            break;
+
+        ObjectGuid targetGuid = purchase->TargetCharacter;
+        if (targetGuid.IsEmpty() && player)
+            targetGuid = player->GetGUID();
+
+        CharacterInfo const* charInfo = sWorld->GetCharacterInfo(targetGuid);
+        if (!charInfo || charInfo->Level >= targetLevel)
+            break;
+
+        sCharacterService->BoostCharacter(_session, targetGuid, targetLevel);
         break;
     }
     case Battlepay::BattlePet:
@@ -339,6 +367,14 @@ void BattlepayManager::SendProductList()
         //pProduct.UnkInt5 = 0;
         //pProduct.UnkString = "";
         //pProduct.UnkBit = false;
+
+        if (product.WebsiteType == Battlepay::CharacterBoost)
+        {
+            if (product.ScriptName.find("level90") != std::string::npos)
+                pProduct.UnkBits = 1;
+            else
+                pProduct.UnkBits = 2;
+        }
 
         for (auto& item : product.Items)
         {

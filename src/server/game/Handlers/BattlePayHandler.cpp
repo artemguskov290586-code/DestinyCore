@@ -23,6 +23,9 @@
 #include "ScriptMgr.h"
 #include "DatabaseEnv.h"
 #include "Player.h"
+#include "DB2Stores.h"
+#include "World.h"
+#include "CharacterService.h"
 
 auto GetBagsFreeSlots = [](Player* player) -> uint32
 {
@@ -261,10 +264,58 @@ void WorldSession::HandleBattlePayAckFailedResponse(WorldPackets::BattlePay::Bat
 
 void WorldSession::HandleBattlePayQueryClassTrialResult(WorldPackets::BattlePay::BattlePayQueryClassTrialResult& /*packet*/)
 {
+    WorldPackets::BattlePay::CharacterClassTrialCreate response;
+    response.Result = 0;
+    SendPacket(response.Write());
 }
 
-void WorldSession::HandleBattlePayTrialBoostCharacter(WorldPackets::BattlePay::BattlePayTrialBoostCharacter& /*packet*/)
+void WorldSession::HandleBattlePayTrialBoostCharacter(WorldPackets::BattlePay::BattlePayTrialBoostCharacter& packet)
 {
+    if (!sWorld->getBoolConfig(CONFIG_CLASS_TRIAL_ENABLED))
+        return;
+
+    CharacterInfo const* charInfo = sWorld->GetCharacterInfo(packet.Character);
+    if (!charInfo || charInfo->AccountId != GetAccountId())
+        return;
+
+    uint8 charRace = charInfo->Race;
+    bool isAlliance = ((1 << (charRace - 1)) & RACEMASK_ALLIANCE) != 0;
+
+    float x, y, z, o;
+    uint16 mapId, zoneId;
+
+    if (isAlliance)
+    {
+        mapId = 1554;
+        zoneId = 8124;
+        x = -2556.0f;
+        y = 2939.6f;
+        z = 134.6f;
+        o = 1.98f;
+    }
+    else
+    {
+        mapId = 1557;
+        zoneId = 8422;
+        x = 0.721f;
+        y = 1.685f;
+        z = 34.501f;
+        o = 6.2787f;
+    }
+
+    sCharacterService->BoostCharacter(this, packet.Character, 100, mapId, zoneId, x, y, z, o, true, uint16(packet.SpecializationID));
+
+    WorldPackets::BattlePay::CharacterClassTrialCreate response;
+    response.Result = 0;
+    SendPacket(response.Write());
+
+    WorldPackets::BattlePay::UpgradeStarted upgradeStarted;
+    upgradeStarted.CharacterGUID = packet.Character;
+    SendPacket(upgradeStarted.Write());
+
+    WorldPackets::BattlePay::BattlePayCharacterUpgradeQueued upgradeQueued;
+    upgradeQueued.Character = packet.Character;
+    SendPacket(upgradeQueued.Write());
 }
 
 void WorldSession::HandleBattlePayPurchaseDetailsResponse(WorldPackets::BattlePay::BattlePayPurchaseDetailsResponse& packet)
